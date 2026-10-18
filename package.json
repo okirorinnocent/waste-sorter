@@ -5,6 +5,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@teachablemachine/image": "^0.8.5",
     "@tensorflow/tfjs": "^4.22.0",
     "@tensorflow/tfjs-converter": "^4.22.0",
     "lucide-react": "^1.59.0",
