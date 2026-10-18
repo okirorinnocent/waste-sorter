@@ -2,7 +2,6 @@
 
 import { useRef, useState } from "react"
 import * as tf from "@tensorflow/tfjs"
-import { loadGraphModel } from "@tensorflow/tfjs-converter"
 import { ArrowRight, Camera, Check, ChevronDown, CircleHelp, Leaf, Menu, RefreshCw, Sparkles, Upload, X } from "lucide-react"
 
 const labels = ["clothes", "glass", "plastic", "paper", "metal", "Trash", "battery", "cupboard", "carton"]
@@ -24,22 +23,32 @@ export default function Home() {
   const [result, setResult] = useState<{ label: string; confidence: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [menu, setMenu] = useState(false)
+  const modelRef = useRef<tf.LayersModel | null>(null)
 
   const classify = async (file: File) => {
     setLoading(true); setResult(null)
     const url = URL.createObjectURL(file); setPreview(url)
     try {
       await tf.ready()
-      const model = await loadGraphModel("/model.json")
+      const model = modelRef.current ?? await tf.loadLayersModel("/model.json")
+      modelRef.current = model
       const image = new Image(); image.src = url; await image.decode()
       const input = tf.tidy(() => tf.browser.fromPixels(image).resizeBilinear([224, 224]).toFloat().div(127.5).sub(1).expandDims(0))
-      const output = model.predict(input) as tf.Tensor
-      const values = await output.data(); let best = 0
-      values.forEach((v, i) => { if (v > values[best]) best = i })
+      const prediction = model.predict(input)
+      const output = Array.isArray(prediction) ? prediction[0] : prediction
+      const values = await output.data()
+      let best = 0
+      values.forEach((value, index) => { if (value > values[best]) best = index })
       setResult({ label: labels[best] ?? "Trash", confidence: Math.round(values[best] * 100) })
-      input.dispose(); output.dispose(); model.dispose()
-    } catch { setResult({ label: "Trash", confidence: 78 }) }
-    setLoading(false)
+      input.dispose()
+      output.dispose()
+    } catch (error) {
+      console.error("[v0] Waste model classification failed", error)
+      setResult({ label: "Trash", confidence: 0 })
+    } finally {
+      URL.revokeObjectURL(url)
+      setLoading(false)
+    }
   }
   const reset = () => { setPreview(null); setResult(null); if (fileRef.current) fileRef.current.value = "" }
   const info = result ? guidance[result.label] : null
