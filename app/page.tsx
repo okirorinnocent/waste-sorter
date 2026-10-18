@@ -1,11 +1,9 @@
 "use client"
 
 import { useRef, useState } from "react"
-import * as tf from "@tensorflow/tfjs"
-import { loadGraphModel } from "@tensorflow/tfjs-converter"
+import * as tmImage from "@teachablemachine/image"
 import { ArrowRight, Camera, Check, ChevronDown, CircleHelp, Leaf, Menu, RefreshCw, Sparkles, Upload, X } from "lucide-react"
 
-const labels = ["clothes", "glass", "plastic", "paper", "metal", "Trash", "battery", "cupboard", "carton"]
 const guidance: Record<string, { bin: string; color: string; note: string; tip: string }> = {
   clothes: { bin: "Textile collection", color: "#9b6b43", note: "Keep it dry and donate wearable pieces when possible.", tip: "Fold or bag textiles before placing them in a collection point." },
   glass: { bin: "Glass recycling", color: "#3f8b76", note: "Rinse containers and remove lids before recycling.", tip: "Never put drinking glasses or ceramics in the glass recycling bin." },
@@ -24,25 +22,36 @@ export default function Home() {
   const [result, setResult] = useState<{ label: string; confidence: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [menu, setMenu] = useState(false)
+  const modelRef = useRef<tmImage.CustomMobileNet | null>(null)
 
   const classify = async (file: File) => {
-    setLoading(true); setResult(null)
-    const url = URL.createObjectURL(file); setPreview(url)
+    setLoading(true)
+    setResult(null)
+    const url = URL.createObjectURL(file)
+    setPreview(url)
     try {
-      await tf.ready()
-      const model = await loadGraphModel("/model.json")
-      const image = new Image(); image.src = url; await image.decode()
-      const input = tf.tidy(() => tf.browser.fromPixels(image).resizeBilinear([224, 224]).toFloat().div(127.5).sub(1).expandDims(0))
-      const output = model.predict(input) as tf.Tensor
-      const values = await output.data(); let best = 0
-      values.forEach((v, i) => { if (v > values[best]) best = i })
-      setResult({ label: labels[best] ?? "Trash", confidence: Math.round(values[best] * 100) })
-      input.dispose(); output.dispose(); model.dispose()
-    } catch { setResult({ label: "Trash", confidence: 78 }) }
-    setLoading(false)
+      const model = modelRef.current ?? await tmImage.load("/model.json", "/metadata.json")
+      modelRef.current = model
+      const image = new Image()
+      image.src = url
+      await image.decode()
+      const predictions = await model.predict(image)
+      predictions.sort((a, b) => b.probability - a.probability)
+      const best = predictions[0]
+      setResult({
+        label: best?.className ?? "Trash",
+        confidence: Math.round((best?.probability ?? 0) * 100),
+      })
+    } catch (error) {
+      console.error("[v0] Waste model classification failed", error)
+      setResult({ label: "Trash", confidence: 0 })
+    } finally {
+      URL.revokeObjectURL(url)
+      setLoading(false)
+    }
   }
   const reset = () => { setPreview(null); setResult(null); if (fileRef.current) fileRef.current.value = "" }
-  const info = result ? guidance[result.label] : null
+  const info = result ? guidance[result.label] ?? guidance[result.label.toLowerCase() === "trash" ? "Trash" : result.label] : null
 
   return <main>
     <header className="nav"><a className="brand" href="#top"><span className="brand-mark"><Leaf /></span><span>sortwise</span></a><nav className={menu ? "nav-links open" : "nav-links"}><a href="#how">How it works</a><a href="#guide">Recycling guide</a><a href="#about">About</a></nav><button className="menu-btn" onClick={() => setMenu(!menu)} aria-label="Toggle menu">{menu ? <X /> : <Menu />}</button><a className="nav-cta" href="#sort">Try the sorter <ArrowRight /></a></header>
